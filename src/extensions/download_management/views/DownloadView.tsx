@@ -13,6 +13,7 @@ import { IComponentContext } from '../../../types/IComponentContext';
 import { DialogActions, DialogType, IDialogContent, IDialogResult } from '../../../types/IDialog';
 import { ITableAttribute } from '../../../types/ITableAttribute';
 import { ComponentEx, connect, translate } from '../../../util/ComponentEx';
+import { ProcessCanceled, UserCanceled } from '../../../util/CustomErrors';
 import { getCurrentLanguage } from '../../../util/i18n';
 import { log } from '../../../util/log';
 import relativeTime from '../../../util/relativeTime';
@@ -137,7 +138,7 @@ class FileTime extends ComponentEx<IFileTimeProps, { mtime: Date }> {
 
   private updateTime() {
     const { download, downloadPath } = this.props;
-    if (download.localPath === undefined) {
+    if ((download.localPath === undefined) || (downloadPath === undefined)) {
         return null;
     } else {
       return fs.statAsync(path.join(downloadPath, download.localPath))
@@ -170,6 +171,9 @@ class DownloadView extends ComponentEx<IProps, IComponentState> {
       dropActive: false,
     };
 
+    let lang: string;
+    let collator: Intl.Collator;
+
     this.gameColumn = {
       id: 'gameid',
       name: 'Game',
@@ -185,7 +189,11 @@ class DownloadView extends ComponentEx<IProps, IComponentState> {
       isSortable: true,
       filter: new GameFilter(),
       sortFunc: (lhs: string, rhs: string, locale: string): number => {
-        return lhs.localeCompare(rhs, locale, { sensitivity: 'base' });
+        if ((collator === undefined) || (locale !== lang)) {
+          lang = locale;
+          collator = new Intl.Collator(locale, { sensitivity: 'base' });
+        }
+        return collator.compare(lhs, rhs);
       },
     };
 
@@ -359,7 +367,20 @@ class DownloadView extends ComponentEx<IProps, IComponentState> {
   }
 
   private startDownload = (url: string) => {
-    this.context.api.events.emit('start-download', [url], {});
+    this.context.api.events.emit('start-download', [url], {}, (err) => {
+      if (err !== undefined) {
+        if (err instanceof UserCanceled) {
+          // nop
+        } else if (err instanceof ProcessCanceled) {
+          this.context.api.sendNotification({
+            type: 'warning',
+            message: err.message,
+          });
+        } else {
+          this.context.api.showErrorNotification('Failed to start download', err);
+        }
+      }
+    });
   }
 
   private pause = (downloadIds: string[]) => {

@@ -136,7 +136,17 @@ export function onRemoveMod(api: IExtensionApi,
 
   const installationPath = resolvePath('install', state.settings.mods.paths, gameMode);
 
-  const dataPath = currentGameDiscovery(state).modPath;
+  // remove from state first, otherwise if the deletion takes some time it will appear as if nothing
+  // happened
+  store.dispatch(removeMod(gameMode, modId));
+
+  const gameDiscovery = getSafe(state, ['settings', 'gameMode', 'discovered', gameMode], undefined);
+  if (gameDiscovery === undefined) {
+    // if the game hasn't been discovered we can't deploy, but that's not really a big problem
+    return callback(null);
+  }
+
+  const dataPath = gameDiscovery.modPath;
   loadActivation(api, dataPath)
     .then(lastActivation => activator.prepare(
       dataPath, false, lastActivation))
@@ -150,7 +160,6 @@ export function onRemoveMod(api: IExtensionApi,
           .catch(err => err.code === 'ENOENT' ? Promise.resolve() : Promise.reject(err))
       : Promise.resolve())
     .then(() => {
-      store.dispatch(removeMod(gameMode, modId));
       callback(null);
     })
     .catch(err => callback(err));

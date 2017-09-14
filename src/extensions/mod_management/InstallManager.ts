@@ -1,8 +1,8 @@
 import { showDialog } from '../../actions/notifications';
 import { IDialogResult } from '../../types/IDialog';
 import { IExtensionApi } from '../../types/IExtensionContext';
-import {UserCanceled} from '../../util/CustomErrors';
-import { createErrorReport } from '../../util/errorHandling';
+import { ProcessCanceled, UserCanceled } from '../../util/CustomErrors';
+import {createErrorReport} from '../../util/errorHandling';
 import getNormalizeFunc, { Normalize } from '../../util/getNormalizeFunc';
 import { log } from '../../util/log';
 import { activeGameId, activeProfile, downloadPath, gameName } from '../../util/selectors';
@@ -33,6 +33,14 @@ import * as os from 'os';
 import * as path from 'path';
 import * as Redux from 'redux';
 import * as rimraf from 'rimraf';
+
+export class ArchiveBrokenError extends Error {
+  constructor() {
+    super('ArchiveBroken');
+
+    this.name = this.constructor.name;
+  }
+}
 
 // TODO: the type declaration for rimraf is actually wrong atm (v0.0.28)
 interface IRimrafOptions {
@@ -162,6 +170,10 @@ class InstallManager {
       .then(() => this.queryGameId(api.store, downloadGameId))
       .then(gameId => {
         installGameId = gameId;
+        if (installGameId === undefined) {
+          return Promise.reject(
+            new ProcessCanceled('You need to select a game before installing this mod'));
+        }
         installContext = new InstallContext(gameId, api.store.dispatch);
         installContext.startIndicator(baseName);
         return api.lookupModMeta({ filePath: archivePath, gameId });
@@ -281,6 +293,14 @@ class InstallManager {
               callback(err, null);
             }
           });
+        } else if (err instanceof ArchiveBrokenError) {
+          return prom
+            .then(() => {
+              installContext.reportError(
+                'Installation failed',
+                `The archive ${path.basename(archivePath)} is damaged and couldn't be installed. `
+                + 'This is most likely fixed by re-downloading the file.', false);
+            });
         } else {
           const { genHash } = require('modmeta-db');
           const errMessage = typeof err === 'string' ? err : err.message + '\n' + err.stack;
@@ -291,7 +311,7 @@ class InstallManager {
               const id = `${path.basename(archivePath)} (md5: ${hashResult.md5sum})`;
               installContext.reportError(
                 'Installation failed',
-                `The installer ${id} failed: ${errMessage}`);
+                `The installer "${id}" failed: ${errMessage}`);
               if (callback !== undefined) {
                 callback(err, modId);
               }
@@ -310,6 +330,14 @@ class InstallManager {
     return this.mTask.extractFull(archivePath, tempPath, {ssc: false},
                                   () => undefined,
                                   () => this.queryPassword(store))
+        .catch((err: Error) => {
+          if ((err.message.indexOf('Unexpected end of archive') !== -1)
+              || (err.message.indexOf('ERROR: Data Error') !== -1)) {
+            return Promise.reject(new ArchiveBrokenError());
+          } else {
+            return Promise.reject(err);
+          }
+        })
         .then(() => walk(tempPath,
                          (iterPath, stats) => {
                            if (stats.isFile()) {
@@ -338,6 +366,9 @@ class InstallManager {
   private queryGameId(store: Redux.Store<any>,
                       downloadGameId: string): Promise<string> {
     const currentGameId = activeGameId(store.getState());
+    if (currentGameId === undefined) {
+      return Promise.resolve(downloadGameId);
+    }
     return new Promise<string>((resolve, reject) => {
       if (getSafe(store.getState(),
                   ['settings', 'gameMode', 'discovered', downloadGameId],
@@ -609,7 +640,9 @@ class InstallManager {
             resolve({ name: result.input, enable: false });
           } else if (result.action === 'Replace') {
             const currentProfile = activeProfile(api.store.getState());
-            const wasEnabled = getSafe(currentProfile.modState, [modId, 'enabled'], false);
+            const wasEnabled = (currentProfile !== undefined) && (currentProfile.gameId === gameId)
+              ? getSafe(currentProfile.modState, [modId, 'enabled'], false)
+              : false;
             api.events.emit('remove-mod', gameId, modId, (err) => {
               if (err !== null) {
                 reject(err);
@@ -630,16 +663,13 @@ class InstallManager {
       return Promise.resolve(undefined);
     }
     return this.mInstallers[offset].testSupported(fileList).then(
-      (testResult: ISupportedResult) => {
-        if (testResult.supported === true) {
-          return Promise.resolve({
+      (testResult: ISupportedResult) => (testResult.supported === true)
+          ? Promise.resolve({
             installer: this.mInstallers[offset],
             requiredFiles: testResult.requiredFiles,
-          });
-        } else {
-          return this.getInstaller(fileList, offset + 1);
-        }
-      }).catch((err) => {
+          })
+          : this.getInstaller(fileList, offset + 1))
+      .catch((err) => {
         log('warn', 'failed to test installer support', err.message);
         return this.getInstaller(fileList, offset + 1);
       });

@@ -273,6 +273,7 @@ class ExtensionManager {
   private mModDBPromise: Promise<void>;
   private mModDBGame: string;
   private mModDBAPIKey: string;
+  private mModDBCache: { [id: string]: ILookupResult[] } = {};
   private mPid: number;
   private mContextProxyHandler: ContextProxyHandler;
   private mExtensionState: { [extId: string]: IExtensionState };
@@ -606,7 +607,8 @@ class ExtensionManager {
       try {
         ext.initFunc(contextProxy as IExtensionContext);
       } catch (err) {
-        log('warn', 'couldn\'t initialize extension', {name: ext.name, err: err.message});
+        log('warn', 'couldn\'t initialize extension',
+          {name: ext.name, err: err.message, stack: err.stack});
       }
     });
     // need to store them locally for now because the store isn't loaded at this time
@@ -709,7 +711,15 @@ class ExtensionManager {
       .then(modDB => modDB.getByKey(reference.fileMD5));
   }
 
+  private modLookupId(detail: ILookupDetails): string {
+    return `${detail.fileMD5}_${detail.filePath}_${detail.fileSize}_${detail.gameId}`;
+  }
+
   private lookupModMeta = (detail: ILookupDetails): Promise<ILookupResult[]> => {
+    const lookupId = this.modLookupId(detail);
+    if (this.mModDBCache[lookupId] !== undefined) {
+      return Promise.resolve(this.mModDBCache[lookupId]);
+    }
     let fileMD5 = detail.fileMD5;
     let fileSize = detail.fileSize;
 
@@ -732,7 +742,10 @@ class ExtensionManager {
       .then(() => this.getModDB())
       .then(modDB => modDB.lookup(detail.filePath, fileMD5,
           fileSize, detail.gameId))
-      .then((result: ILookupResult[]) => Promise.resolve(result));
+      .then((result: ILookupResult[]) => {
+        this.mModDBCache[lookupId] = result;
+        return Promise.resolve(result);
+      });
   }
 
   private saveModMeta = (modInfo: IModInfo): Promise<void> => {
