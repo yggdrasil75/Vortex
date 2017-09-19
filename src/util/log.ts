@@ -70,6 +70,9 @@ export function log(level: LogLevel, message: string, metadata?: any) {
   if (metadata === undefined) {
     logger.log(level, message);
   } else {
+    if (metadata.stack !== undefined) {
+      metadata.stack = metadata.stack.replace(/\n/gm, '\t');
+    }
     logger.log(level, message, metadata);
   }
 }

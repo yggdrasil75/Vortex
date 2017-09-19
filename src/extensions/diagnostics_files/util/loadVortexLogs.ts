@@ -27,7 +27,7 @@ export function loadVortexLogs(): Promise<ISession[]> {
   const logPath = remote.app.getPath('userData');
 
   return fs.readdirAsync(logPath)
-    .filter((fileName: string) => fileName.match(/vortex[0-9]?\.log/) !== null)
+    .filter((fileName: string) => fileName.match(/^vortex[0-9]?\.log$/) !== null)
     .then((logFileNames: string[]) => {
       logFileNames = logFileNames.sort((lhs: string, rhs: string) => rhs.localeCompare(lhs));
       return Promise.mapSeries(logFileNames, (logFileName: string) =>
@@ -38,7 +38,6 @@ export function loadVortexLogs(): Promise<ISession[]> {
       const splittedSessions = text.split('- info: --------------------------');
 
       return splittedSessions.map((sessionElement: string): ISession => {
-        // const splittedLogs = sessionElement.split(/\r?\n(?!^[ ])(?!^\n)(?!^[ERROR])/m);
         const logElements: ILog[] = sessionElement
           .split('\n')
           .map(parseLine)

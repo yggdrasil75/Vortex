@@ -2217,6 +2217,16 @@ a[role=menuitem] svg {
   }
 }
 
+.diagnostics-files-migrationlogs-panel {
+  height: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  .migration-date {
+    color: $brand-info;
+    font-weight: bold;
+  }
+}
+
 .diagnostics-files-log-panel {
   .checkbox {
     margin: 0px $half-gutter;
@@ -2227,6 +2237,10 @@ a[role=menuitem] svg {
     padding-left: 0px;
     overflow-y: auto;
     height: 100%;
+  }
+
+  .log-text {
+    white-space: pre-wrap;
   }
 
   .log-time {
