@@ -28,7 +28,7 @@ export function loadMigrationLogs(): Promise<IMigration[]> {
   }
 
   return fs.readdirAsync(logPath)
-    .filter((fileName: string) => fileName.match(/^nmm_import-/) !== null)
+    .filter((fileName: string) => fileName.match(/^nmm_import-[0-9].*\d$/) !== null)
     .then((migrationFolders: string[]) => {
       migrationFolders = migrationFolders.sort((lhs: string, rhs: string) =>
         rhs.localeCompare(lhs));
