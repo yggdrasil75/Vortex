@@ -78,12 +78,14 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
 
     if (!this.props.visible && nextProps.visible) {
       this.setState(update(this.state, {
-        show: { $set: {
-          error: true,
-          warn: true,
-          info: true,
-          debug: false,
-        } },
+        show: {
+          $set: {
+            error: true,
+            warn: true,
+            info: true,
+            debug: false,
+          },
+        },
       }));
 
       this.updateLogs();
@@ -112,7 +114,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
       if (logSessions === undefined || migrationLogs === undefined) {
         body = (
           <Modal.Body id='diagnostics-files'>
-            <Icon name='spinner' pulse/>
+            <Icon name='spinner' pulse />
           </Modal.Body>
         );
       } else if (logSessions.length > 0 || migrationLogs.length > 0) {
@@ -120,7 +122,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
           .sort((lhs, rhs) => rhs.from.getTime() - lhs.from.getTime());
 
         const migrationLogsSorted = migrationLogs
-            .sort((lhs, rhs) => rhs.migrationDate.getTime() - lhs.migrationDate.getTime());
+          .sort((lhs, rhs) => rhs.migrationDate.getTime() - lhs.migrationDate.getTime());
 
         body = (
           <Modal.Body id='diagnostics-files'>
@@ -131,7 +133,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
               </ListGroup>
             </FlexLayout.Fixed>
             <FlexLayout.Fixed>
-            <p>Migration Logs</p>
+              <p>Migration Logs</p>
               <ListGroup className='diagnostics-files-migrationlogs-panel'>
                 {migrationLogsSorted.map(this.renderMigration)}
               </ListGroup>
@@ -219,7 +221,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
 
     let isCrashed = '';
     if ((session.from === undefined)
-        && !session.logs[session.logs.length - 1].text.endsWith('clean application end')) {
+      && !session.logs[session.logs.length - 1].text.endsWith('clean application end')) {
       isCrashed = ` - ${t('Crashed')}!`;
     }
 
@@ -275,8 +277,8 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
               {type === 'warn' ? t('WARNING') : t(type.toUpperCase())}
             </Checkbox>
           </div>
-        )) }
-        <FlexLayout.Flex/>
+        ))}
+        <FlexLayout.Flex />
         <Button onClick={this.copyToClipboard}>
           {t('Copy to Clipoard')}
         </Button>
@@ -285,7 +287,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
             id={`report-vortex-log-${sessionIdx}`}
             onClick={this.reportVortexLog}
           >
-          {t('Report')}
+            {t('Report')}
           </Button>
         ) : null}
       </FlexLayout>
@@ -314,8 +316,8 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
               {type === 'info' ? t('TRASNFERING') : t(type.toUpperCase())}
             </Checkbox>
           </div>
-        )) }
-        <FlexLayout.Flex/>
+        ))}
+        <FlexLayout.Flex />
         <Button onClick={this.copyToClipboard}>
           {t('Copy to Clipoard')}
         </Button>
@@ -324,7 +326,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
             id={`report-migration-log-${migrationIdx}`}
             onClick={this.reportMigrationLog}
           >
-          {t('Report')}
+            {t('Report')}
           </Button>
         ) : null}
       </FlexLayout>
@@ -345,12 +347,12 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
     );
   }
 
-  private renderMigrationLogLine(line: ILog): JSX.Element {
+  private renderMigrationLogLine(line: IMigrationLog): JSX.Element {
     return (
       <li key={`migration-${line.lineno}`} className={`log-line-${line.type}`}>
         <span className={`log-type-${line.type}`}>{
           line.type === 'info' ? 'transfering' : line.type
-          }</span>
+        }</span>
         {': '}
         <span className='log-text'>{line.text.replace(/\t/g, '\n')}</span>
       </li>
@@ -359,8 +361,8 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
 
   private renderLog() {
     const {
-       logSessions, migrationIdx, migrationLogs,
-       sessionIdx, show, showApplicationState } = this.state;
+      logSessions, migrationIdx, migrationLogs,
+      sessionIdx, show, showApplicationState } = this.state;
 
     if (showApplicationState) {
       return (
@@ -388,37 +390,37 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
 
     if (sessionIdx !== -1) {
       const filteredLog = logSessions[sessionIdx].logs
-      .filter(line => enabledLevels.has(line.type))
-      .map(this.renderSessionLogLine);
+        .filter(line => enabledLevels.has(line.type))
+        .map(this.renderSessionLogLine);
 
       return (
-      <FlexLayout type='column' className='diagnostics-files-log-panel'>
-        <FlexLayout.Fixed>
-          {this.renderVortexFilterButtons()}
-        </FlexLayout.Fixed>
-        <FlexLayout.Flex>
-          <ul className='log-list'>
-            {filteredLog}
-          </ul>
-        </FlexLayout.Flex>
-      </FlexLayout>
+        <FlexLayout type='column' className='diagnostics-files-log-panel'>
+          <FlexLayout.Fixed>
+            {this.renderVortexFilterButtons()}
+          </FlexLayout.Fixed>
+          <FlexLayout.Flex>
+            <ul className='log-list'>
+              {filteredLog}
+            </ul>
+          </FlexLayout.Flex>
+        </FlexLayout>
       );
     } else if (migrationIdx !== -1) {
       const filteredLog = migrationLogs[migrationIdx].logs
-      .filter(line => enabledLevels.has(line.type))
-      .map(this.renderMigrationLogLine);
+        .filter(line => enabledLevels.has(line.type))
+        .map(this.renderMigrationLogLine);
 
       return (
-      <FlexLayout type='column' className='diagnostics-files-log-panel'>
-        <FlexLayout.Fixed>
-          {this.renderMigrationFilterButtons()}
-        </FlexLayout.Fixed>
-        <FlexLayout.Flex>
-          <ul className='log-list'>
-            {filteredLog}
-          </ul>
-        </FlexLayout.Flex>
-      </FlexLayout>
+        <FlexLayout type='column' className='diagnostics-files-log-panel'>
+          <FlexLayout.Fixed>
+            {this.renderMigrationFilterButtons()}
+          </FlexLayout.Fixed>
+          <FlexLayout.Flex>
+            <ul className='log-list'>
+              {filteredLog}
+            </ul>
+          </FlexLayout.Flex>
+        </FlexLayout>
       );
     }
   }
@@ -469,7 +471,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
       sessionIdx: { $set: idx },
       migrationIdx: { $set: -1 },
       showApplicationState: { $set: false },
-     }));
+    }));
   }
 
   private selectMigration = (evt) => {
@@ -478,7 +480,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
       migrationIdx: { $set: idx },
       sessionIdx: { $set: -1 },
       showApplicationState: { $set: false },
-     }));
+    }));
   }
 
   private copyToClipboard = () => {
@@ -488,16 +490,16 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
 
     if (sessionIdx !== -1) {
       const filteredLog = logSessions[sessionIdx].logs
-      .filter(line => enabledLevels.has(line.type))
-      .map(line => `${line.time} - ${line.type}: ${line.text}`)
-      .join('\n');
+        .filter(line => enabledLevels.has(line.type))
+        .map(line => `${line.time} - ${line.type}: ${line.text}`)
+        .join('\n');
 
       remote.clipboard.writeText(filteredLog);
     } else if (migrationIdx !== -1) {
       const filteredLog = migrationLogs[migrationIdx].logs
-      .filter(line => enabledLevels.has(line.type))
-      .map(line => `${line.type}: ${line.text}`)
-      .join('\n');
+        .filter(line => enabledLevels.has(line.type))
+        .map(line => `${line.type}: ${line.text}`)
+        .join('\n');
 
       remote.clipboard.writeText(filteredLog);
     }
