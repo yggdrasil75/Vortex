@@ -13,8 +13,9 @@ import sortMods from '../extensions/mod_management/util/sort';
 import { Archive } from './archives';
 import AsyncComponent from './AsyncComponent';
 import copyRecursive from './copyRecursive';
-import { NotSupportedError, UserCanceled } from './CustomErrors';
+import { NotSupportedError, ProcessCanceled, UserCanceled } from './CustomErrors';
 import Debouncer from './Debouncer';
+import delayed from './delayed';
 import runElevated from './elevated';
 import { terminate } from './errorHandling';
 import { extend } from './ExtensionProvider';
@@ -35,6 +36,7 @@ export {
   bytesToString,
   copyRecursive,
   Debouncer,
+  delayed,
   deriveModInstallName as deriveInstallName,
   extend,
   getCurrentLanguage,
@@ -46,6 +48,7 @@ export {
   makeReactive,
   Normalize,
   NotSupportedError,
+  ProcessCanceled,
   ReduxProp,
   relativeTime,
   renderModName,

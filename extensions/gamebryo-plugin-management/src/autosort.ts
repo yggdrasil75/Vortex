@@ -8,6 +8,7 @@ import { remote } from 'electron';
 import * as fs from 'fs-extra-promise';
 import {GameId, LootDatabase} from 'loot';
 import * as path from 'path';
+import * as ReduxThunk from 'redux-thunk';
 import {actions, log, selectors, types} from 'vortex-api';
 
 class LootInterface {
@@ -16,7 +17,7 @@ class LootInterface {
   private mLootQueue: Promise<void>;
   private mOnSetLootActivity: (activity: string) => void;
   private mExtensionApi: types.IExtensionApi;
-  private mOnFirstInit: () => void;
+  private mOnFirstInit: () => void = null;
 
   private mUserlistTime: Date;
 
@@ -181,8 +182,10 @@ class LootInterface {
           // enqueue a new promise that resolves once those pre-init tasks are done and unblock
           // them.
           this.enqueue(t('Init Queue'), () => {
-            this.mOnFirstInit();
-            this.mOnFirstInit = null;
+            if (this.mOnFirstInit !== null) {
+              this.mOnFirstInit();
+              this.mOnFirstInit = null;
+            }
             return new Promise<void>((resolve, reject) => {
               preInitQueue.then(() => resolve());
             });
@@ -238,6 +241,12 @@ class LootInterface {
       .catch((err: Error) => {
         if (err.message.startsWith('Cyclic interaction')) {
           this.reportCycle(err);
+        } else if (err.message.endsWith('is not a valid plugin')) {
+          this.mExtensionApi.sendNotification({
+            type: 'warning',
+            message: this.mExtensionApi.translate('Not sorted because: {{msg}}',
+              { replace: { msg: err.message } }),
+          });
         } else {
           this.mExtensionApi.showErrorNotification('LOOT operation failed',
                                                    err);

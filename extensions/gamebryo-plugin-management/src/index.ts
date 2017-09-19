@@ -65,8 +65,7 @@ function updatePluginList(store: Redux.Store<any>, newModList: IModStates): Prom
   const enabledModIds = Object.keys(gameMods).filter(
       modId => util.getSafe(newModList, [modId, 'enabled'], false));
 
-  return Promise
-      .map(enabledModIds,
+  return Promise.map(enabledModIds,
            (modId: string) => {
              const mod = gameMods[modId];
              return fs.readdirAsync(path.join(selectors.installPath(state),
@@ -96,7 +95,10 @@ function updatePluginList(store: Redux.Store<any>, newModList: IModStates): Prom
           return Promise.resolve([]);
         }
         const modPath = currentDiscovery.modPath;
-        return fs.readdirAsync(modPath);
+        // if reading the mod directory fails that's probably a broken installation,
+        // but it's not the responsible of this extension to report that, the
+        // game mode management will notice this as well.
+        return fs.readdirAsync(modPath).catch(err => []);
       })
       .then((fileNames: string[]) => {
         const pluginNames: string[] = fileNames.filter(isPlugin);
@@ -262,16 +264,21 @@ function startSync(api: types.IExtensionApi): Promise<void> {
     }
     // watch the mod directory. if files change, that may mean our plugin list
     // changed, so refresh
-    watcher = fs.watch(modPath, {}, (evt: string, fileName: string) => {
-      if (refreshTimer !== undefined) {
-        clearTimeout(refreshTimer);
-      }
-      refreshTimer = setTimeout(() => {
-        updateCurrentProfile(store)
-            .then(() => api.events.emit('autosort-plugins'));
-        refreshTimer = undefined;
-      }, 500);
-    });
+    try {
+      watcher = fs.watch(modPath, {}, (evt: string, fileName: string) => {
+        if (refreshTimer !== undefined) {
+          clearTimeout(refreshTimer);
+        }
+        refreshTimer = setTimeout(() => {
+          updateCurrentProfile(store)
+              .then(() => api.events.emit('autosort-plugins'));
+          refreshTimer = undefined;
+        }, 500);
+      });
+    } catch (err) {
+      api.showErrorNotification('failed to watch mod directory', err,
+        { allowReport: err.code !== 'ENOENT' });
+    }
   });
 }
 
@@ -318,10 +325,17 @@ function testMissingMasters(t: I18next.TranslationFunction,
     (plugin: string) => loadOrder[plugin].enabled);
   const pluginDetails =
     enabledPlugins.filter((name: string) => pluginList[name] !== undefined)
-      .map((plugin) => ({
-        name: plugin,
-        detail: new ESPFile(pluginList[plugin].filePath),
-      }));
+      .map((plugin) => {
+        try {
+          return {
+            name: plugin,
+            masterList: new ESPFile(pluginList[plugin].filePath).masterList,
+          };
+        } catch (err) {
+          log('warn', 'failed to parse esp file', { name, err: err.message });
+          return { name: plugin, masterList: [] };
+        }
+      });
   // previously this only contained plugins that were marked as masters but apparenly
   // some plugins reference non-masters as their dependency.
   const masters = new Set<string>([].concat(
@@ -329,7 +343,7 @@ function testMissingMasters(t: I18next.TranslationFunction,
     nativePlugins(gameMode)).map(name => name.toLowerCase()));
 
   const broken = pluginDetails.reduce((prev, plugin) => {
-    const missing = plugin.detail.masterList.filter(
+    const missing = plugin.masterList.filter(
       (requiredMaster) => !masters.has(requiredMaster.toLowerCase()));
     if (missing.length > 0) {
       log('info', 'missing masters', { plugin: plugin.name, missing: missing.join(', ') });
