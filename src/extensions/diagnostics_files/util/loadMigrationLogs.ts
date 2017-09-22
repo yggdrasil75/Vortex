@@ -1,4 +1,4 @@
-import { LogLevel } from '../../../util/log';
+import { MigrationLogLevel } from '../../../util/log';
 
 import { IMigration, IMigrationLog } from '../types/IMigration';
 
@@ -10,20 +10,35 @@ import * as path from 'path';
 export function loadMigrationLogs(): Promise<IMigration[]> {
 
   const logPath = remote.app.getPath('userData');
-  const lineRE = /^(transfering|Failed to import) (.*)((\n\ \ .+)*)$/;
+  const firstPartRegex = /^(transfering|Failed to import|transfer|Finished) /;
+  const secondPartRegex = /(?:\('|\(\[ ')*(.*?)((\n\ \ .+?)*)(?:'\)|\ ]\))*$/;
+  const lineRE = new RegExp(firstPartRegex.source.concat(secondPartRegex.source), 'gm');
 
   function parseLine(line: string, idx: number): IMigrationLog {
-    const match = line.match(lineRE);
-    if ((match !== null) && (match[1] === 'transfering' || 'Failed')) {
-      const logLevel = match[1] === 'transfering' ? 'info' : 'error';
-      const logText = match[1] === 'transfering' ? match[2] : path.join(match[2], match[3]);
-      return {
-        lineno: idx,
-        type: logLevel as LogLevel,
-        text: logText,
-      };
-    } else {
-      return undefined;
+    const match = line.match(lineRE.source);
+    if (match !== null) {
+      let logLevel: string = '';
+      let logText: string = '';
+      switch (match[1]) {
+        case 'transfer':
+        case 'Finished':
+          logLevel = 'info';
+          logText = match[0];
+          return {
+            lineno: idx,
+            type: logLevel as MigrationLogLevel,
+            text: logText,
+          };
+        case 'transfering':
+        case 'Failed to import':
+          logLevel = match[1] === 'Failed to import' ? 'failed' : match[1];
+          logText = match[2];
+          return {
+            lineno: idx,
+            type: logLevel as MigrationLogLevel,
+            text: logText,
+          };
+      }
     }
   }
 
@@ -37,6 +52,7 @@ export function loadMigrationLogs(): Promise<IMigration[]> {
           .then((text) => {
 
             const logElements: IMigrationLog[] = text
+              .replace(/,\n  '/gm, '\t')
               .split(/\n(?!^[ ])/m)
               .map(parseLine)
               .filter(line => line !== undefined);

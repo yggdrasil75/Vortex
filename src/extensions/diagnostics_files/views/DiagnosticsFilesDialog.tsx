@@ -41,6 +41,11 @@ interface IComponentState {
     info: boolean;
     debug: boolean;
   };
+  migrationShow: {
+    failed: boolean;
+    transfering: boolean;
+    info: boolean;
+  };
   logSessions: ISession[];
   migrationLogs: IMigration[];
   showApplicationState: boolean;
@@ -66,6 +71,11 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
         info: true,
         debug: false,
       },
+      migrationShow: {
+        failed: true,
+        transfering: true,
+        info: true,
+      },
       logSessions: undefined,
       migrationLogs: undefined,
       showApplicationState: false,
@@ -84,6 +94,13 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
             warn: true,
             info: true,
             debug: false,
+          },
+        },
+        migrationShow: {
+          $set: {
+            failed: true,
+            transfering: true,
+            info: false,
           },
         },
       }));
@@ -182,7 +199,12 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
     const { t, language } = this.props;
     const { migrationIdx } = this.state;
 
-    const errors = migration.logs.filter(item => item.type === 'error');
+    let errors: number = 0;
+    migration.logs
+      .filter(item => item.type === 'failed')
+      .forEach(element => {
+        errors = errors + element.text.split(/\t/).length;
+      });
 
     const classes = ['list-group-item'];
     if (migrationIdx === index) {
@@ -193,8 +215,8 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
       <div style={{ width: '90%' }} key={`migration-${index}`}>
         <span>{t('Migration date: ')}</span>
         <span className='migration-date'>{migration.migrationDate.toUTCString()}</span>
-        {errors.length > 0 ? <span>
-          {' - ' + t('{{ count }} error', { count: errors.length })}
+        {errors > 0 ? <span>
+          {' - ' + t('{{ count }} failed files', { count: errors })}
         </span> : null}
       </div>
     );
@@ -296,24 +318,25 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
 
   private renderMigrationFilterButtons() {
     const { t } = this.props;
-    const { migrationLogs, migrationIdx, show } = this.state;
+    const { migrationLogs, migrationIdx, migrationShow } = this.state;
 
     const errors = (migrationIdx === -1)
       ? []
-      : migrationLogs[migrationIdx].logs.filter(item => item.type === 'error');
+      : migrationLogs[migrationIdx].logs
+        .filter(item => item.type === 'failed');
 
     return (
       <FlexLayout type='row' key='migration-flex-layout-div'>
-        {['info', 'error'].map(type => (
+        {['transfering', 'info', 'failed'].map(type => (
           <div key={`migration-${type}`}>
             <Checkbox
               key={`checkbox-${type}`}
               className={`log-filter-${type}`}
-              checked={show[type]}
-              onChange={this.toggleFilter}
+              checked={migrationShow[type]}
+              onChange={this.toggleMigrationFilter}
               value={type}
             >
-              {type === 'info' ? t('TRASNFERING') : t(type.toUpperCase())}
+              {t(type.toUpperCase())}
             </Checkbox>
           </div>
         ))}
@@ -348,20 +371,43 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
   }
 
   private renderMigrationLogLine(line: IMigrationLog): JSX.Element {
-    return (
-      <li key={`migration-${line.lineno}`} className={`log-line-${line.type}`}>
-        <span className={`log-type-${line.type}`}>{
-          line.type === 'info' ? 'transfering' : line.type
-        }</span>
-        {': '}
-        <span className='log-text'>{line.text.replace(/\t/g, '\n')}</span>
-      </li>
-    );
+
+    if (line.type === 'failed') {
+      const splittedLines = line.text.split(/\t/);
+      const failedLines = [];
+
+      splittedLines.forEach((splittedLine, index) => {
+        failedLines.push(
+          <li
+            key={`migration-${path.join(line.lineno.toString(), '-', index.toString())}`}
+            className={`log-line-${line.type}`}
+          >
+            <span className={`log-type-${line.type}`}>{line.type}</span>
+            {': '}
+            <span className='log-text'>{splittedLine}</span>
+          </li>,
+        );
+      });
+
+      return (
+        <div>
+          {failedLines}
+        </div>
+      );
+    } else {
+      return (
+        <li key={`migration-${line.lineno}`} className={`log-line-${line.type}`}>
+          <span className={`log-type-${line.type}`}>{line.type}</span>
+          {': '}
+          <span className='log-text'>{line.text.replace(/\t/g, '\n')}</span>
+        </li>
+      );
+    }
   }
 
   private renderLog() {
     const {
-      logSessions, migrationIdx, migrationLogs,
+      logSessions, migrationIdx, migrationLogs, migrationShow,
       sessionIdx, show, showApplicationState } = this.state;
 
     if (showApplicationState) {
@@ -387,6 +433,8 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
     }
 
     const enabledLevels = new Set(Object.keys(show).filter(key => show[key]));
+    const enabledMigrationLevels =
+      new Set(Object.keys(migrationShow).filter(key => migrationShow[key]));
 
     if (sessionIdx !== -1) {
       const filteredLog = logSessions[sessionIdx].logs
@@ -407,7 +455,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
       );
     } else if (migrationIdx !== -1) {
       const filteredLog = migrationLogs[migrationIdx].logs
-        .filter(line => enabledLevels.has(line.type))
+        .filter(line => enabledMigrationLevels.has(line.type))
         .map(this.renderMigrationLogLine);
 
       return (
@@ -465,6 +513,13 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
     this.setState(update(this.state, { show: { [filter]: { $set: !show[filter] } } }));
   }
 
+  private toggleMigrationFilter = (evt) => {
+    const { migrationShow } = this.state;
+    const filter = evt.currentTarget.value;
+    this.setState(update(this.state,
+      { migrationShow: { [filter]: { $set: !migrationShow[filter] } } }));
+  }
+
   private selectSession = (evt) => {
     const idx = evt.currentTarget.value;
     this.setState(update(this.state, {
@@ -484,9 +539,13 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
   }
 
   private copyToClipboard = () => {
-    const { logSessions, migrationIdx, migrationLogs, sessionIdx, show } = this.state;
+    const {
+      logSessions, migrationIdx, migrationLogs,
+      migrationShow, sessionIdx, show } = this.state;
 
     const enabledLevels = new Set(Object.keys(show).filter(key => show[key]));
+    const enabledMigrationLevels =
+      new Set(Object.keys(migrationShow).filter(key => migrationShow[key]));
 
     if (sessionIdx !== -1) {
       const filteredLog = logSessions[sessionIdx].logs
@@ -497,7 +556,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
       remote.clipboard.writeText(filteredLog);
     } else if (migrationIdx !== -1) {
       const filteredLog = migrationLogs[migrationIdx].logs
-        .filter(line => enabledLevels.has(line.type))
+        .filter(line => enabledMigrationLevels.has(line.type))
         .map(line => `${line.type}: ${line.text}`)
         .join('\n');
 

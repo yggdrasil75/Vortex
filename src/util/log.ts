@@ -22,6 +22,7 @@ if ((process as any).type === 'renderer') {
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type MigrationLogLevel = 'transfering' | 'info' | 'failed';
 
 export function setLogPath(basePath: string) {
   logger.remove(logger.transports['File']);

@@ -1,4 +1,4 @@
-import {LogLevel} from '../../../util/log';
+import {MigrationLogLevel} from '../../../util/log';
 
 export interface IMigration {
   logs: IMigrationLog[];
@@ -9,5 +9,5 @@ export interface IMigration {
 export interface IMigrationLog {
   lineno: number;
   text: string;
-  type: LogLevel;
+  type: MigrationLogLevel;
 }

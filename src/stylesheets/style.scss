@@ -2250,7 +2250,7 @@ a[role=menuitem] svg {
     color: $text-color-disabled;
   }
 
-  .log-filter-debug, .log-type-debug {
+  .log-filter-debug, .log-filter-transfering, .log-type-debug, .log-type-transfering {
     color: $gray;
   }
 
@@ -2262,7 +2262,7 @@ a[role=menuitem] svg {
     color: $brand-warning;
   }
 
-  .log-filter-error, .log-type-error {
+  .log-filter-error, .log-filter-failed, .log-type-error, .log-type-failed {
     color: $brand-danger;
   }
 }
