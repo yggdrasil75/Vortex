@@ -3,9 +3,15 @@ import { INotification } from '../../types/INotification';
 import { log } from '../../util/log';
 import { showError } from '../../util/message';
 
-import { addMod, removeMod, setModAttribute,
-         setModInstallationPath, setModState } from './actions/mods';
-import { IMod, ModState } from './types/IMod';
+import {
+  addMod,
+  removeMod,
+  setModAttribute,
+  setModInstallationPath,
+  setModState,
+  setModType,
+} from './actions/mods';
+import {IMod, ModState} from './types/IMod';
 
 import { IInstallContext, InstallOutcome } from './types/IInstallContext';
 
@@ -25,6 +31,7 @@ class InstallContext implements IInstallContext {
   private mSetModState: (id: string, state: ModState) => void;
   private mSetModAttribute: (id: string, key: string, value: any) => void;
   private mSetModInstallationPath: (id: string, installPath: string) => void;
+  private mSetModType: (id: string, modType: string) => void;
 
   private mAddedId: string;
   private mIndicatorId: string;
@@ -41,13 +48,19 @@ class InstallContext implements IInstallContext {
       showError(dispatch, message, details, false, undefined, allowReport);
     this.mSetModState = (id, state) =>
       dispatch(setModState(gameMode, id, state));
-    this.mSetModAttribute = (id, key, value) =>
-      dispatch(setModAttribute(gameMode, id, key, value));
+    this.mSetModAttribute = (id, key, value) => {
+      if (value !== undefined) {
+        dispatch(setModAttribute(gameMode, id, key, value));
+      }
+    };
     this.mSetModInstallationPath = (id, installPath) =>
       dispatch(setModInstallationPath(gameMode, id, installPath));
+    this.mSetModType = (id, modType) =>
+      dispatch(setModType(gameMode, id, modType));
   }
 
   public startIndicator(id: string): void {
+    log('info', 'start mod install', { id });
     this.mAddNotification({
       id: 'install_' + id,
       message: 'Installing ' + id,
@@ -70,6 +83,7 @@ class InstallContext implements IInstallContext {
   public startInstallCB(id: string, archiveId: string): void {
     this.mAddMod({
       id,
+      type: '',
       archiveId,
       installationPath: id,
       state: 'installing',
@@ -82,6 +96,11 @@ class InstallContext implements IInstallContext {
   }
 
   public finishInstallCB(outcome: InstallOutcome, info?: any): void {
+    log('info', 'finish mod install', {
+      id: this.mIndicatorId,
+      outcome: this.mInstallOutcome,
+      info,
+    });
     if (outcome === 'success') {
       this.mSetModState(this.mAddedId, 'installed');
       this.mSetModAttribute(this.mAddedId, 'installTime', new Date());
@@ -106,7 +125,13 @@ class InstallContext implements IInstallContext {
   }
 
   public setInstallPathCB(id: string, installPath: string) {
+    log('info', 'using install path', { id, installPath });
     this.mSetModInstallationPath(id, path.basename(installPath));
+  }
+
+  public setModType(id: string, modType: string) {
+    log('info', 'determined mod type', { id, modType });
+    this.mSetModType(id, modType);
   }
 
   public reportError(message: string, details?: string | Error, allowReport?: boolean): void {

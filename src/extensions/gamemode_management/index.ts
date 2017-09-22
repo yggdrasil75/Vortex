@@ -1,6 +1,11 @@
 import { showDialog } from '../../actions/notifications';
-import { GameInfoQuery, IExtensionApi, IExtensionContext } from '../../types/IExtensionContext';
-import { IGame } from '../../types/IGame';
+import {
+  GameInfoQuery,
+  IExtensionApi,
+  IExtensionContext,
+  IInstruction,
+} from '../../types/IExtensionContext';
+import {IGame} from '../../types/IGame';
 import { IState } from '../../types/IState';
 import {ProcessCanceled} from '../../util/CustomErrors';
 import LazyComponent from '../../util/LazyComponent';
@@ -20,10 +25,10 @@ import { discoveryReducer } from './reducers/discovery';
 import { persistentReducer } from './reducers/persistent';
 import { sessionReducer } from './reducers/session';
 import { settingsReducer } from './reducers/settings';
-import {IDiscoveryResult} from './types/IDiscoveryResult';
-import {IGameStored} from './types/IGameStored';
+import { IDiscoveryResult } from './types/IDiscoveryResult';
+import { IGameStored } from './types/IGameStored';
+import { IModType } from './types/IModType';
 import queryGameInfo from './util/queryGameInfo';
-import AddGameDialog from './views/AddGameDialog';
 import Dashlet from './views/Dashlet';
 import {} from './views/GamePicker';
 import HideGameIcon from './views/HideGameIcon';
@@ -39,6 +44,45 @@ import * as fs from 'fs-extra-promise';
 import * as path from 'path';
 import * as Redux from 'redux';
 
+const extensionGames: IGame[] = [];
+const modTypeExtensions: IModType[] = [];
+
+// "decorate" IGame objects with added functionality
+const gameExHandler = {
+  get: (target: IGame, key: PropertyKey) => {
+    if (key === 'getModPaths') {
+      const applicableExtensions = modTypeExtensions.filter(ex => ex.isSupported(target.id));
+      const extTypes = applicableExtensions.reduce((prev, val) => {
+        prev[val.typeId] = val.getPath(target);
+        return prev;
+      }, {});
+
+      return gamePath => {
+        let defaultPath = target.queryModPath(gamePath);
+        if (!path.isAbsolute(defaultPath)) {
+          defaultPath = path.resolve(gamePath, defaultPath);
+        }
+        return {
+          ...extTypes,
+          '': defaultPath,
+        };
+      };
+    } else if (key === 'modTypes') {
+      const applicableExtensions = modTypeExtensions.filter(ex => ex.isSupported(target.id));
+      return applicableExtensions;
+    } else {
+      return target[key];
+    }
+  },
+};
+
+function makeGameProxy(game: IGame): IGame {
+  if (game === undefined) {
+    return undefined;
+  }
+  return new Proxy(game, gameExHandler);
+}
+
 // this isn't nice...
 const $ = local<{
   gameModeManager: GameModeManager,
@@ -51,10 +95,15 @@ export function getGames(): IGame[] {
   if ($.gameModeManager === undefined) {
     throw new Error('getGames only available in renderer process');
   }
-  return $.gameModeManager.games;
+  return $.gameModeManager.games.map(makeGameProxy);
 }
 
-const extensionGames: IGame[] = [];
+export function getGame(gameId: string): IGame {
+  if ($.gameModeManager === undefined) {
+    throw new Error('getGame only available in renderer process');
+  }
+  return makeGameProxy($.gameModeManager.games.find(iter => iter.id === gameId));
+}
 
 interface IProvider {
   id: string;
@@ -139,15 +188,27 @@ function refreshGameInfo(store: Redux.Store<IState>, gameId: string): Promise<vo
   .then(() => undefined);
 }
 
-function verifyGamePath(game: IGameStored, gamePath: string): Promise<void> {
-  return Promise.map(game.requiredFiles, file =>
+function verifyGamePath(game: IGame, gamePath: string): Promise<void> {
+  return Promise.map(game.requiredFiles || [], file =>
     fs.statAsync(path.join(gamePath, file)))
     .then(() => undefined);
 }
 
+function transformModPaths(basePath: string, input: { [type: string]: string }):
+    { [type: string]: string } {
+  return Object.keys(input).reduce((prev, type) => {
+    if (input[type] !== undefined) {
+      prev[type] = (path.isAbsolute(input[type]))
+        ? input[type]
+        : path.resolve(basePath, input[type]);
+    }
+    return prev;
+  }, {});
+}
+
 function browseGameLocation(api: IExtensionApi, gameId: string): Promise<void> {
   const state: IState = api.store.getState();
-  const game = state.session.gameMode.known.find(iter => iter.id === gameId);
+  const game = $.gameModeManager.games.find(iter => iter.id === gameId);
   const discovery = state.settings.gameMode.discovered[gameId];
 
   return new Promise<void>((resolve, reject) => {
@@ -159,14 +220,10 @@ function browseGameLocation(api: IExtensionApi, gameId: string): Promise<void> {
         if (fileNames !== undefined) {
           verifyGamePath(game, fileNames[0])
             .then(() => {
-              let modPath = game.modPath;
-              if (!path.isAbsolute(modPath)) {
-                modPath = path.resolve(fileNames[0], modPath);
-              }
-              api.store.dispatch(setGamePath(game.id, fileNames[0], modPath));
+              api.store.dispatch(setGamePath(game.id, fileNames[0]));
               resolve();
             })
-            .catch(() => {
+            .catch(err => {
               api.store.dispatch(showDialog('error', 'Game not found', {
                 message: api.translate('This directory doesn\'t appear to contain the game. '
                   + 'Expected to find these files: {{ files }}',
@@ -188,20 +245,15 @@ function browseGameLocation(api: IExtensionApi, gameId: string): Promise<void> {
         if (fileNames !== undefined) {
           verifyGamePath(game, fileNames[0])
             .then(() => {
-              let modPath = game.modPath;
-              if (!path.isAbsolute(modPath)) {
-                modPath = path.resolve(fileNames[0], modPath);
-              }
               api.store.dispatch(addDiscoveredGame(game.id, {
                 path: fileNames[0],
-                modPath,
                 tools: {},
                 hidden: false,
                 environment: game.environment,
               }));
               resolve();
             })
-            .catch(() => {
+            .catch(err => {
               api.store.dispatch(showDialog('error', 'Game not found', {
                 message: api.translate('This directory doesn\'t appear to contain the game. '
                   + 'Expected to find these files: {{ files }}',
@@ -249,6 +301,20 @@ function init(context: IExtensionContext): boolean {
   context.registerGameInfoProvider =
     (id: string, priority: number, expireMS: number, keys: string[], query: GameInfoQuery) => {
       gameInfoProviders.push({ id, priority, expireMS, keys, query });
+  };
+
+  context.registerModType = (id: string, priority: number,
+                             isSupported: (gameId: string) => boolean,
+                             getPath: (game: IGame) => string,
+                             test: (instructions: IInstruction[]) =>
+                                 Promise<boolean>) => {
+    modTypeExtensions.push({
+      typeId: id,
+      priority,
+      isSupported,
+      getPath,
+      test,
+    });
   };
 
   context.registerGameInfoProvider('main', 0, 86400000,
@@ -301,10 +367,9 @@ function init(context: IExtensionContext): boolean {
                          context.api.translate('Open Mod Folder'),
                          openModFolder);
   context.registerAction('game-undiscovered-buttons', 115, 'folder-open', {},
-    context.api.translate('Manually set Location'),
+    context.api.translate('Manually Set Location'),
     (instanceIds: string[]) => { browseGameLocation(context.api, instanceIds[0]); });
 
-  context.registerDialog('add-game', AddGameDialog);
   context.registerDashlet('Game Picker', 2, 2, 0, Dashlet, () =>
     activeGameId(context.api.store.getState()) === undefined);
 

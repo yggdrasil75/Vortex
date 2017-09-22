@@ -5,11 +5,11 @@ import lazyRequire from '../../util/lazyRequire';
 import { log } from '../../util/log';
 import { activeGameId, gameName } from '../../util/selectors';
 
-import LinkingActivator from '../mod_management/LinkingActivator';
+import LinkingDeployment from '../mod_management/LinkingDeployment';
 import {
   IDeployedFile,
-  IModActivator,
-} from '../mod_management/types/IModActivator';
+  IDeploymentMethod,
+} from '../mod_management/types/IDeploymentMethod';
 
 import walk from './walk';
 
@@ -24,13 +24,14 @@ import { remoteCode } from './remoteCode';
 const elevated =
     lazyRequire<typeof elevatedT>('../../util/elevated', __dirname);
 
-class ModActivator extends LinkingActivator {
+class DeploymentMethod extends LinkingDeployment {
   public id: string;
   public name: string;
   public description: string;
 
   private mElevatedClient: any;
   private mOutstanding: string[];
+  private mQuitTimer: NodeJS.Timer;
   private mDone: () => void;
   private mWaitForUser: () => Promise<void>;
 
@@ -79,15 +80,14 @@ class ModActivator extends LinkingActivator {
   }
 
   public prepare(dataPath: string, clean: boolean, lastActivation: IDeployedFile[]): Promise<void> {
-    return this.startElevated()
-      .then(() => super.prepare(dataPath, clean, lastActivation));
+    return super.prepare(dataPath, clean, lastActivation);
   }
 
   public finalize(dataPath: string): Promise<IDeployedFile[]> {
-    return super.finalize(dataPath).then(result => {
-      this.stopElevated();
-      return result;
-    });
+    return this.startElevated()
+        .then(() => super.finalize(dataPath))
+        .then(result => this.stopElevated()
+            .then(() => result));
   }
 
   public isSupported(state: any, gameId?: string): string {
@@ -103,10 +103,7 @@ class ModActivator extends LinkingActivator {
     }
     if (this.isUnsupportedGame(gameId)) {
       // Mods for this games use some file types that have issues working with symbolic links
-      if (this.isUnsupportedGame(gameId)) {
-        // Mods for this games use some file types that have issues working with symbolic links
-        return 'Doesn\'t work with ' + gameName(state, gameId);
-      }
+      return 'Doesn\'t work with ' + gameName(state, gameId);
     }
     return undefined;
   }
@@ -135,18 +132,18 @@ class ModActivator extends LinkingActivator {
     // purge by removing all symbolic links that point to a file inside
     // the install directory
     return this.startElevated()
-    .then(() => walk(dataPath, (iterPath: string, stats: fs.Stats) => {
-          if (!stats.isSymbolicLink()) {
-            return Promise.resolve();
-          }
-          return fs.readlinkAsync(iterPath).then((symlinkPath) => {
-            if (!path.relative(installPath, symlinkPath).startsWith('..')) {
-              ipc.server.emit(this.mElevatedClient, 'remove-link',
-                              {destination: iterPath});
+      .then(() => walk(dataPath, (iterPath: string, stats: fs.Stats) => {
+            if (!stats.isSymbolicLink()) {
+              return Promise.resolve();
             }
-          });
-        }))
-    .then(() => this.stopElevated());
+            return fs.readlinkAsync(iterPath).then((symlinkPath) => {
+              if (!path.relative(installPath, symlinkPath).startsWith('..')) {
+                ipc.server.emit(this.mElevatedClient, 'remove-link',
+                                {destination: iterPath});
+              }
+            });
+          }))
+      .then(() => this.stopElevated());
   }
 
   protected isLink(linkPath: string, sourcePath: string): Promise<boolean> {
@@ -162,27 +159,30 @@ class ModActivator extends LinkingActivator {
     const ipcPath: string = 'nmm_elevate_symlink';
 
     return new Promise<void>((resolve, reject) => {
-          ipc.serve(ipcPath, () => {
-            ipc.server.on('initialised', (data, socket) => {
-              this.mElevatedClient = socket;
-              resolve();
-            });
-            ipc.server.on('finished', (modPath: string) => {
-              this.mOutstanding.splice(this.mOutstanding.indexOf(modPath), 1);
-              if ((this.mOutstanding.length === 0) && (this.mDone !== null)) {
-                this.finish();
-              }
-            });
-            ipc.server.on('socket.disconnected', () => {
-              ipc.server.stop();
-              this.mElevatedClient = null;
-            });
-            ipc.server.on('log', (data: any) => {
-              log(data.level, data.message, data.meta);
-            });
-            return elevated.default(ipcPath, remoteCode, {}, __dirname);
-          });
+          if (this.mQuitTimer !== undefined) {
+            // if there is already an elevated process, just keep it around a bit longer
+            clearTimeout(this.mQuitTimer);
+            return resolve();
+          }
+          ipc.serve(ipcPath, () => undefined);
           ipc.server.start();
+          ipc.server.on('initialised', (data, socket) => {
+            this.mElevatedClient = socket;
+            resolve();
+          });
+          ipc.server.on('finished', (modPath: string) => {
+            this.mOutstanding.splice(this.mOutstanding.indexOf(modPath), 1);
+            if ((this.mOutstanding.length === 0) && (this.mDone !== null)) {
+              this.finish();
+            }
+          });
+          ipc.server.on('socket.disconnected', () => {
+            ipc.server.stop();
+          });
+          ipc.server.on('log', (data: any) => {
+            log(data.level, data.message, data.meta);
+          });
+          return elevated.default(ipcPath, remoteCode, {}, __dirname);
         });
   }
 
@@ -198,8 +198,16 @@ class ModActivator extends LinkingActivator {
   }
 
   private finish() {
-    ipc.server.emit(this.mElevatedClient, 'quit');
-    ipc.server.stop();
+    if (this.mQuitTimer !== undefined) {
+      clearTimeout(this.mQuitTimer);
+    }
+    this.mQuitTimer = setTimeout(() => {
+      ipc.server.emit(this.mElevatedClient, 'quit');
+      ipc.server.stop();
+      this.mElevatedClient = null;
+      this.mQuitTimer = undefined;
+    }, 1000);
+
     this.mDone();
   }
 
@@ -213,11 +221,11 @@ class ModActivator extends LinkingActivator {
 }
 
 export interface IExtensionContextEx extends IExtensionContext {
-  registerModActivator: (activator: IModActivator) => void;
+  registerDeploymentMethod: (deployment: IDeploymentMethod) => void;
 }
 
 function init(context: IExtensionContextEx): boolean {
-  context.registerModActivator(new ModActivator(context.api));
+  context.registerDeploymentMethod(new DeploymentMethod(context.api));
 
   return true;
 }

@@ -74,21 +74,25 @@ class GameModeManager {
   public setGameMode(oldMode: string, newMode: string): Promise<void> {
     const game = this.mKnownGames.find(knownGame => knownGame.id === newMode);
     const gameDiscovery = this.mStore.getState().settings.gameMode.discovered[newMode];
-    if (gameDiscovery === undefined) {
+    if ((game === undefined) || (gameDiscovery === undefined)) {
       // new game mode is not valid
       return Promise.reject(new Error('game mode not found'));
     }
 
-    return fs.statAsync(gameDiscovery.modPath)
-    .then(() => {
-      log('info', 'changed game mode', {oldMode, newMode});
-      this.mOnGameModeActivated(newMode);
-    })
-    .catch(err => {
-      return (err.code === 'ENOENT')
-      ? Promise.reject(new ProcessCanceled('mod directory missing: ' + gameDiscovery.modPath))
-      : Promise.reject(err);
-    });
+    let modPath = game.queryModPath(gameDiscovery.path);
+    if (!path.isAbsolute(modPath)) {
+      modPath = path.resolve(gameDiscovery.path, modPath);
+    }
+    return fs.statAsync(modPath)
+      .then(() => {
+        log('info', 'changed game mode', {oldMode, newMode});
+        this.mOnGameModeActivated(newMode);
+      })
+      .catch(err => {
+        return (err.code === 'ENOENT')
+        ? Promise.reject(new ProcessCanceled('Mod directory missing: ' + modPath))
+        : Promise.reject(err);
+      });
   }
 
   /**
@@ -108,7 +112,11 @@ class GameModeManager {
     } else if ((game === undefined) || (game.setup === undefined)) {
       return Promise.resolve();
     } else {
-      return game.setup();
+      try {
+        return game.setup(gameDiscovery);
+      } catch (err) {
+        return Promise.reject(err);
+      }
     }
   }
 
@@ -168,10 +176,9 @@ class GameModeManager {
       id: game.id,
       logo: game.logo,
       mergeMods: game.mergeMods,
-      modPath: game.queryModPath(),
       extensionPath: game.extensionPath,
       requiredFiles: game.requiredFiles,
-      supportedTools: game.supportedTools !== null
+      supportedTools: game.supportedTools !== undefined
         ? game.supportedTools.map(this.storeTool)
         : [],
       executable: game.executable(),
@@ -197,9 +204,6 @@ class GameModeManager {
   }
 
   private onDiscoveredGame = (gameId: string, result: IDiscoveryResult) => {
-    if (!path.isAbsolute(result.modPath)) {
-      result.modPath = path.resolve(result.path, result.modPath);
-    }
     this.mStore.dispatch(addDiscoveredGame(gameId, result));
   }
 }

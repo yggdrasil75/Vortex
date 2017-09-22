@@ -1,11 +1,13 @@
 import { IExtensionApi, IExtensionContext } from '../../types/IExtensionContext';
+import { IGame } from '../../types/IGame';
 import { log } from '../../util/log';
 import { activeGameId, gameName } from '../../util/selectors';
 import walk from '../../util/walk';
 
+import { getGame } from '../gamemode_management';
 import { IDiscoveryResult } from '../gamemode_management/types/IDiscoveryResult';
-import LinkingActivator from '../mod_management/LinkingActivator';
-import { IModActivator } from '../mod_management/types/IModActivator';
+import LinkingDeployment from '../mod_management/LinkingDeployment';
+import { IDeploymentMethod } from '../mod_management/types/IDeploymentMethod';
 
 import * as Promise from 'bluebird';
 import { app as appIn, remote } from 'electron';
@@ -16,7 +18,7 @@ import * as path from 'path';
 
 const app = appIn || remote.app;
 
-class ModActivator extends LinkingActivator {
+class DeploymendMethod extends LinkingDeployment {
   public id: string;
   public name: string;
   public description: string;
@@ -46,7 +48,7 @@ class ModActivator extends LinkingActivator {
       + 'your regular account has write access to source and destination.');
   }
 
-  public isSupported(state: any, gameId?: string): string {
+  public isSupported(state: any, gameId: string, typeId: string): string {
     if (gameId === undefined) {
       gameId = activeGameId(state);
     }
@@ -61,11 +63,17 @@ class ModActivator extends LinkingActivator {
       return 'Doesn\'t work with ' + gameName(state, gameId);
     }
 
-    const activeGameDiscovery: IDiscoveryResult =
-      state.settings.gameMode.discovered[gameId];
+    const discovery: IDiscoveryResult = state.settings.gameMode.discovered[gameId];
+
+    if (discovery === undefined) {
+      return 'No game discovery';
+    }
+
+    const game: IGame = getGame(gameId);
+    const modPaths = game.getModPaths(discovery.path);
 
     try {
-      fsOrig.accessSync(activeGameDiscovery.modPath, fsOrig.constants.W_OK);
+      fsOrig.accessSync(modPaths[typeId], fsOrig.constants.W_OK);
       if (!this.ensureAdmin()) {
         return 'Requires admin rights on windows';
       }
@@ -75,7 +83,24 @@ class ModActivator extends LinkingActivator {
   }
 
   protected linkFile(linkPath: string, sourcePath: string): Promise<void> {
-    return fs.symlinkAsync(sourcePath, linkPath);
+    return fs.ensureDirAsync(path.dirname(linkPath))
+        .then((created: any) => {
+          let tagDir: Promise<void>;
+          if (created !== null) {
+            tagDir = fs.writeFileAsync(
+                path.join(created, LinkingDeployment.TAG_NAME),
+                'This directory was created by Vortex deployment and will be removed ' +
+                    'during purging if it\'s empty');
+          } else {
+            tagDir = Promise.resolve();
+          }
+          return tagDir.then(() => fs.symlinkAsync(sourcePath, linkPath))
+              .catch((err) => {
+                if (err.code !== 'EEXIST') {
+                  throw err;
+                }
+              });
+        });
   }
 
   protected unlinkFile(linkPath: string): Promise<void> {
@@ -135,11 +160,11 @@ class ModActivator extends LinkingActivator {
 }
 
 export interface IExtensionContextEx extends IExtensionContext {
-  registerModActivator: (activator: IModActivator) => void;
+  registerDeploymentMethod: (method: IDeploymentMethod) => void;
 }
 
 function init(context: IExtensionContextEx): boolean {
-  context.registerModActivator(new ModActivator(context.api));
+  context.registerDeploymentMethod(new DeploymendMethod(context.api));
 
   return true;
 }

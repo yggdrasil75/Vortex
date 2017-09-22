@@ -1,5 +1,5 @@
 import {IExtensionApi} from '../../types/IExtensionContext';
-import {IStatePaths} from '../../types/IState';
+import {IDiscoveryResult, IState, IStatePaths} from '../../types/IState';
 import {showError} from '../../util/message';
 import {getSafe} from '../../util/storeHelper';
 import {truthy} from '../../util/util';
@@ -8,13 +8,15 @@ import {IDownload} from '../download_management/types/IDownload';
 import {activeGameId, activeProfile} from '../profile_management/selectors';
 import {addMod, removeMod} from './actions/mods';
 import {setActivator} from './actions/settings';
+import {IDeploymentMethod} from './types/IDeploymentMethod';
 import {IMod} from './types/IMod';
-import {IModActivator} from './types/IModActivator';
 import {loadActivation, saveActivation} from './util/activationStore';
 
+import {getGame} from '../gamemode_management/index';
 import {currentGameDiscovery} from '../gamemode_management/selectors';
 import {setModEnabled} from '../profile_management/actions/profiles';
 
+import allTypesSupported from './util/allTypesSupported';
 import refreshMods from './util/refreshMods';
 import resolvePath from './util/resolvePath';
 import supportedActivators from './util/supportedActivators';
@@ -27,14 +29,16 @@ import * as fs from 'fs-extra-promise';
 import * as path from 'path';
 
 export function onGameModeActivated(
-    api: IExtensionApi, activators: IModActivator[], newGame: string) {
+    api: IExtensionApi, activators: IDeploymentMethod[], newGame: string) {
   const store = api.store;
-  const state = store.getState();
+  const state: IState = store.getState();
   const configuredActivatorId = currentActivator(state);
   const supported = supportedActivators(activators, state);
   const configuredActivator =
     supported.find(activator => activator.id === configuredActivatorId);
-  const gameDiscovery = currentGameDiscovery(state);
+  const gameId = activeGameId(state);
+  const gameDiscovery = state.settings.gameMode.discovered[gameId];
+  const game = getGame(gameId);
 
   const instPath = installPath(state);
 
@@ -46,16 +50,22 @@ export function onGameModeActivated(
 
     if ((configuredActivatorId !== undefined) && (oldActivator === undefined)) {
       api.showErrorNotification(
-        'Deployment method "' + configuredActivatorId + '" no longer available',
-        'The deployment method used with this game is no longer available. ' +
-        'This probably means you removed the corresponding extension or ' +
-        'it can no longer be loaded due to a bug.\n' +
-        'Vortex can\'t clean up files deployed with an unsupported method. ' +
-        'You should try to restore it, purge deployment and then switch ' +
-        'to a different method.');
+        'Deployment method no longer available',
+        {
+          reason:
+          'The deployment method used with this game is no longer available. ' +
+          'This probably means you removed the corresponding extension or ' +
+          'it can no longer be loaded due to a bug.\n' +
+          'Vortex can\'t clean up files deployed with an unsupported method. ' +
+          'You should try to restore it, purge deployment and then switch ' +
+          'to a different method.',
+          method: configuredActivatorId,
+        }, { allowReport: false });
     } else {
+      const modPaths = game.getModPaths(gameDiscovery.path);
       const purgePromise = oldActivator !== undefined
-        ? oldActivator.purge(instPath, gameDiscovery.modPath)
+        ? Promise.mapSeries(Object.keys(modPaths),
+            typeId => oldActivator.purge(instPath, modPaths[typeId])).then(() => undefined)
         : Promise.resolve();
 
       purgePromise.then(() => {
@@ -106,12 +116,12 @@ export function onPathsChanged(api: IExtensionApi,
 }
 
 export function onRemoveMod(api: IExtensionApi,
-                            activators: IModActivator[],
+                            activators: IDeploymentMethod[],
                             gameMode: string,
                             modId: string,
                             callback?: (error: Error) => void) {
   const store = api.store;
-  const state = store.getState();
+  const state: IState = store.getState();
   let mod: IMod;
 
   try {
@@ -129,10 +139,16 @@ export function onRemoveMod(api: IExtensionApi,
 
   store.dispatch(setModEnabled(profile.id, modId, false));
 
+  const discovery = state.settings.gameMode.discovered[gameMode];
+  const game = getGame(gameMode);
+  const modPaths = game.getModPaths(discovery.path);
+  const modTypes = Object.keys(modPaths);
+
   const activatorId = getSafe(state, ['settings', 'mods', 'activator', gameMode], undefined);
-  const activator: IModActivator = activatorId !== undefined
+  // TODO: can only use one activator that needs to support the whole game
+  const activator: IDeploymentMethod = activatorId !== undefined
     ? activators.find(act => act.id === activatorId)
-    : activators.find(act => act.isSupported(state, gameMode) === undefined);
+    : activators.find(act => allTypesSupported(act, state, gameMode, modTypes) === undefined);
 
   const installationPath = resolvePath('install', state.settings.mods.paths, gameMode);
 
@@ -140,29 +156,29 @@ export function onRemoveMod(api: IExtensionApi,
   // happened
   store.dispatch(removeMod(gameMode, modId));
 
-  const gameDiscovery = getSafe(state, ['settings', 'gameMode', 'discovered', gameMode], undefined);
-  if (gameDiscovery === undefined) {
-    // if the game hasn't been discovered we can't deploy, but that's not really a big problem
+  if (discovery === undefined) {
+    // if the game hasn't been discovered we can't deploy, but that's not really a problem
     return callback(null);
   }
 
-  const dataPath = gameDiscovery.modPath;
-  loadActivation(api, dataPath)
-    .then(lastActivation => activator.prepare(
-      dataPath, false, lastActivation))
-    .then(() => mod !== undefined
-      ? activator.deactivate(installationPath, dataPath, mod)
-      : Promise.resolve())
-    .then(() => activator.finalize(dataPath))
-    .then(newActivation => saveActivation(state.app.instanceId, dataPath, newActivation))
-    .then(() => truthy(mod)
-      ? fs.removeAsync(path.join(installationPath, mod.installationPath))
-          .catch(err => err.code === 'ENOENT' ? Promise.resolve() : Promise.reject(err))
-      : Promise.resolve())
-    .then(() => {
-      callback(null);
-    })
-    .catch(err => callback(err));
+  Promise.each(modTypes, typeId => {
+    const dataPath = modPaths[typeId];
+    loadActivation(api, typeId, dataPath)
+      .then(lastActivation => activator.prepare(dataPath, false, lastActivation))
+      .then(() => mod !== undefined
+        ? activator.deactivate(installationPath, dataPath, mod)
+        : Promise.resolve())
+      .then(() => activator.finalize(dataPath))
+      .then(newActivation => saveActivation(typeId, state.app.instanceId, dataPath, newActivation))
+      .catch(err => callback(err));
+  })
+  .then(() => truthy(mod)
+    ? fs.removeAsync(path.join(installationPath, mod.installationPath))
+        .catch(err => err.code === 'ENOENT' ? Promise.resolve() : Promise.reject(err))
+    : Promise.resolve())
+  .then(() => {
+    callback(null);
+  });
 }
 
 export function onStartInstallDownload(api: IExtensionApi,

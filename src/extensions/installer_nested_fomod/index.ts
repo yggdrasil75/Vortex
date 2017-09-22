@@ -4,12 +4,15 @@
  * to another installer.
  */
 
-import {IExtensionApi, IExtensionContext} from '../../types/IExtensionContext';
+import {
+  IExtensionApi,
+  IExtensionContext,
+  ISupportedResult,
+  ProgressDelegate,
+} from '../../types/IExtensionContext';
 import {log} from '../../util/log';
 
-import {IProgressDelegate} from '../mod_management/types/IInstall';
-import {ISupportedResult} from '../mod_management/types/ITestSupported';
-
+import * as Promise from 'bluebird';
 import * as path from 'path';
 
 function testSupported(files: string[]): Promise<ISupportedResult> {
@@ -24,7 +27,7 @@ function testSupported(files: string[]): Promise<ISupportedResult> {
 }
 
 function install(files: string[], destinationPath: string,
-                 gameId: string, progress: IProgressDelegate,
+                 gameId: string, progress: ProgressDelegate,
                  api: IExtensionApi): Promise<any> {
   return new Promise((resolve, reject) => {
     const fomod = files.find((file) => path.extname(file) === '.fomod');
@@ -34,15 +37,11 @@ function install(files: string[], destinationPath: string,
   });
 }
 
-export interface IExtensionContextExt extends IExtensionContext {
-  registerInstaller: (priority, testSupported, install) => void;
-}
-
-function init(context: IExtensionContextExt): boolean {
+function init(context: IExtensionContext): boolean {
   context.registerInstaller(
-      0, testSupported,
+      'nested_fomod', 0, testSupported,
       (files: string[], destinationPath: string, gameId: string,
-       progress: IProgressDelegate) =>
+       progress: ProgressDelegate) =>
           install(files, destinationPath, gameId, progress, context.api));
 
   return true;

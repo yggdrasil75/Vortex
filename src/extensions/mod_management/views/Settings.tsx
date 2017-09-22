@@ -8,11 +8,12 @@ import { ComponentEx, connect, translate } from '../../../util/ComponentEx';
 import { showError } from '../../../util/message';
 import { activeGameId } from '../../../util/selectors';
 import { getSafe, setSafe } from '../../../util/storeHelper';
+import { getGame } from '../../gamemode_management';
 import { currentGame, currentGameDiscovery } from '../../gamemode_management/selectors';
 import { IDiscoveryResult } from '../../gamemode_management/types/IDiscoveryResult';
 import { IGameStored } from '../../gamemode_management/types/IGameStored';
 import { setActivator, setPath } from '../actions/settings';
-import { IModActivator } from '../types/IModActivator';
+import { IDeploymentMethod } from '../types/IDeploymentMethod';
 import resolvePath, { pathDefaults, PathKey } from '../util/resolvePath';
 import getSupportedActivators from '../util/supportedActivators';
 
@@ -31,7 +32,7 @@ import {
 import * as Redux from 'redux';
 
 interface IBaseProps {
-  activators: IModActivator[];
+  activators: IDeploymentMethod[];
 }
 
 interface IConnectedProps {
@@ -58,7 +59,7 @@ interface IActionProps {
 interface IComponentState {
   paths: { [gameId: string]: IStatePaths };
   busy: string;
-  supportedActivators: IModActivator[];
+  supportedActivators: IDeploymentMethod[];
   currentActivator: string;
 }
 
@@ -156,9 +157,9 @@ class Settings extends ComponentEx<IProps, IComponentState> {
    * return only those activators that are supported based on the current state
    *
    * @param {*} state
-   * @returns {IModActivator[]}
+   * @returns {IDeploymentMethod[]}
    */
-  private supportedActivators(): IModActivator[] {
+  private supportedActivators(): IDeploymentMethod[] {
     return getSupportedActivators(this.props.activators, this.props.state);
   }
 
@@ -268,9 +269,13 @@ class Settings extends ComponentEx<IProps, IComponentState> {
 
     const oldActivator = activators.find(iter => iter.id === currentActivator);
     const installPath = resolvePath('install', paths, gameMode);
+    const game = getGame(gameMode);
+    const modPaths = game.getModPaths(discovery.path);
 
     return oldActivator !== undefined
-      ? oldActivator.purge(installPath, discovery.modPath)
+      ? Promise.mapSeries(Object.keys(modPaths),
+                          typeId => oldActivator.purge(installPath, modPaths[typeId]))
+        .then(() => undefined)
       : Promise.resolve();
   }
 
@@ -369,7 +374,7 @@ class Settings extends ComponentEx<IProps, IComponentState> {
       });
   }
 
-  private renderActivators(activators: IModActivator[], currentActivator: string): JSX.Element {
+  private renderActivators(activators: IDeploymentMethod[], currentActivator: string): JSX.Element {
     const { t } = this.props;
 
     let content: JSX.Element;
@@ -423,7 +428,7 @@ class Settings extends ComponentEx<IProps, IComponentState> {
     );
   }
 
-  private renderActivatorOption(activator: IModActivator): JSX.Element {
+  private renderActivatorOption(activator: IDeploymentMethod): JSX.Element {
     return (
       <option key={activator.id} value={activator.id}>{activator.name}</option>
     );

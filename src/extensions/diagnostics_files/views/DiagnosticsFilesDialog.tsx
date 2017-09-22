@@ -342,7 +342,7 @@ class DiagnosticsFilesDialog extends ComponentEx<IProps, IComponentState> {
         ))}
         <FlexLayout.Flex />
         <Button onClick={this.copyToClipboard}>
-          {t('Copy to Clipoard')}
+          {t('Copy to Clipboard')}
         </Button>
         {errors.length > 0 ? (
           <Button

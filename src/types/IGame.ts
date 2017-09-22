@@ -1,6 +1,11 @@
+import { IModType } from '../extensions/gamemode_management/types/IModType';
+
+import { IDiscoveryResult } from './IState';
 import { ITool } from './ITool';
 
 import * as Promise from 'bluebird';
+
+export { IModType };
 
 /**
  * interface for game extensions
@@ -9,23 +14,50 @@ import * as Promise from 'bluebird';
  */
 export interface IGame extends ITool {
   /**
-   * determine the directory where mods for this game
+   * determine the default directory where mods for this game
    * should be stored.
    *
    * If this returns a relative path then the path is treated as relative
    * to the game installation directory. Simply return a dot ( () => '.' )
    * if mods are installed directly into the game directory
    *
+   * @param gamePath path where the game is installed
+   *
    * @memberOf IGame
    */
-  queryModPath: () => string;
+  queryModPath: (gamePath: string) => string;
+
+  /**
+   * returns all directories where mods for this game
+   * may be stored as a dictionary of type to (absolute) path.
+   *
+   * Do not implement this in your game extension, the function
+   * is added by vortex itself
+   *
+   * @param gamePath path where the game is installed
+   *
+   * @memberOf IGame
+   */
+  getModPaths?: (gamePath: string) => { [typeId: string]: string };
+
+  /**
+   * returns the mod type extensions applicable to this game (all
+   * mod types except the default
+   *
+   * Do not implement this in your game extension, this is added
+   * by vortex
+   *
+   * @type {IModTypeExtension[]}
+   * @memberof IGame
+   */
+  modTypes?: IModType[];
 
   /**
    * list of tools that support this game
    *
    * @memberOf IGame
    */
-  supportedTools: ITool[];
+  supportedTools?: ITool[];
 
   /**
    * path to the game extension and assets included with it. This is automatically
@@ -64,7 +96,7 @@ export interface IGame extends ITool {
    * (like creating a directory, changing a registry key, ...) do it here. It will be called
    * every time before the game mode is activated.
    */
-  setup?: () => Promise<void>;
+  setup?: (discovery: IDiscoveryResult) => Promise<void>;
 
   /**
    * additional details about the game that may be used by extensions. Some extensions may work

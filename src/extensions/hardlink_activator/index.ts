@@ -1,11 +1,13 @@
 import { IExtensionApi, IExtensionContext } from '../../types/IExtensionContext';
+import { IGame } from '../../types/IGame';
 import { log } from '../../util/log';
 import { activeGameId } from '../../util/selectors';
 
+import { getGame } from '../gamemode_management';
 import { IDiscoveryResult } from '../gamemode_management/types/IDiscoveryResult';
-import LinkingActivator from '../mod_management/LinkingActivator';
-import {installPath} from '../mod_management/selectors';
-import { IModActivator } from '../mod_management/types/IModActivator';
+import LinkingDeployment from '../mod_management/LinkingDeployment';
+import { installPath } from '../mod_management/selectors';
+import { IDeploymentMethod } from '../mod_management/types/IDeploymentMethod';
 
 import walk from '../../util/walk';
 
@@ -24,7 +26,7 @@ export class FileFound extends Error {
   }
 }
 
-class ModActivator extends LinkingActivator {
+class DeploymentMethod extends LinkingDeployment {
   constructor(api: IExtensionApi) {
     super(
         'hardlink_activator', 'Hardlink deployment',
@@ -54,28 +56,25 @@ class ModActivator extends LinkingActivator {
       + 'a copy.');
   }
 
-  public isSupported(state: any, gameId?: string): string {
-    if (gameId === undefined) {
-      gameId = activeGameId(state);
-    }
-
-    const activeGameDiscovery: IDiscoveryResult =
-      state.settings.gameMode.discovered[gameId];
-    if (activeGameDiscovery === undefined) {
+  public isSupported(state: any, gameId: string, typeId: string): string {
+    const discovery: IDiscoveryResult = state.settings.gameMode.discovered[gameId];
+    if (discovery === undefined) {
       return 'No game discovery';
     }
 
+    const game: IGame = getGame(gameId);
+    const modPaths = game.getModPaths(discovery.path);
+
     try {
-      fsOrig.accessSync(activeGameDiscovery.modPath, fsOrig.constants.W_OK);
+      fsOrig.accessSync(modPaths[typeId], fsOrig.constants.W_OK);
     } catch (err) {
       log('info', 'hardlink activator not supported due to lack of write access',
-        { path: activeGameDiscovery.modPath });
-      return 'Can\'t write to data path';
+          { typeId, path: modPaths[typeId] });
+      return `Can\'t write to output directory: ${modPaths[typeId]}`;
     }
 
     try {
-      if (fs.statSync(installPath(state)).dev !==
-          fs.statSync(activeGameDiscovery.modPath).dev) {
+      if (fs.statSync(installPath(state)).dev !== fs.statSync(modPaths[typeId]).dev) {
         // hard links work only on the same drive
         return 'Works only if mods are installed on the same drive as the game. '
           + 'You can go to settings and change the mod directory to the same drive '
@@ -84,7 +83,7 @@ class ModActivator extends LinkingActivator {
     } catch (err) {
       // this can happen when managing the the game for the first time
       log('info', 'failed to stat. directory missing?', {
-        dir1: installPath(state), dir2: activeGameDiscovery.modPath,
+        dir1: installPath(state), dir2: modPaths[typeId],
         err: util.inspect(err),
       });
       return 'Game not fully initialized yet, this should disappear soon.';
@@ -119,7 +118,7 @@ class ModActivator extends LinkingActivator {
           let tagDir: Promise<void>;
           if (created !== null) {
             tagDir = fs.writeFileAsync(
-                path.join(created, LinkingActivator.TAG_NAME),
+                path.join(created, LinkingDeployment.TAG_NAME),
                 'This directory was created by Vortex deployment and will be removed ' +
                     'during purging if it\'s empty');
           } else {
@@ -128,6 +127,7 @@ class ModActivator extends LinkingActivator {
           return tagDir.then(() => fs.linkAsync(sourcePath, linkPath))
               .catch((err) => {
                 if (err.code !== 'EEXIST') {
+                  log('debug', 'failed to hard-link because file exists', { linkPath });
                   throw err;
                 }
               });
@@ -152,11 +152,11 @@ class ModActivator extends LinkingActivator {
 }
 
 export interface IExtensionContextEx extends IExtensionContext {
-  registerModActivator: (activator: IModActivator) => void;
+  registerDeploymentMethod: (activator: IDeploymentMethod) => void;
 }
 
 function init(context: IExtensionContextEx): boolean {
-  context.registerModActivator(new ModActivator(context.api));
+  context.registerDeploymentMethod(new DeploymentMethod(context.api));
 
   return true;
 }

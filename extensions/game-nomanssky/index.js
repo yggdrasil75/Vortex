@@ -24,13 +24,12 @@ function main(context) {
     name: 'No Man\'s Sky',
     mergeMods: false,
     queryPath: findGame,
-    queryModPath: () => 'GAMEDATA/PCBANKS/MODS/',
+    queryModPath: () => path.join('GAMEDATA', 'PCBANKS', 'MODS'),
     logo: 'gameart.png',
     executable: () => 'NMS.exe',
     requiredFiles: [
       'NMS.exe',
     ],
-    supportedTools: null,
     details: {
       steamAppId: 275850,
     },

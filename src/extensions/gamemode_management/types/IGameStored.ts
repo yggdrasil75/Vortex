@@ -5,12 +5,11 @@ export interface IGameStored {
   name: string;
   shortName?: string;
   logo?: string;
-  modPath: string;
   mergeMods: boolean;
   extensionPath: string;
   requiredFiles: string[];
   executable: string;
-  supportedTools: IToolStored[];
+  supportedTools?: IToolStored[];
   environment?: { [key: string]: string };
   details?: { [key: string]: any };
 }
