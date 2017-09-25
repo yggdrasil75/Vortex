@@ -10,12 +10,10 @@ import * as path from 'path';
 export function loadMigrationLogs(): Promise<IMigration[]> {
 
   const logPath = remote.app.getPath('userData');
-  const firstPartRegex = /^(transfering|Failed to import|transfer|Finished) /;
-  const secondPartRegex = /(?:\('|\(\[ ')*(.*?)((\n\ \ .+?)*)(?:'\)|\ ]\))*$/;
-  const lineRE = new RegExp(firstPartRegex.source.concat(secondPartRegex.source), 'gm');
+  const lineRE = /^([a-zA-Z]+) (?:\('|to import \(\[ ')*(.*?)((\n\ \ .+?)*)(?:'\)|\ ]\))*$/;
 
   function parseLine(line: string, idx: number): IMigrationLog {
-    const match = line.match(lineRE.source);
+    const match = line.match(lineRE);
     if (match !== null) {
       let logLevel: string = '';
       let logText: string = '';
@@ -30,8 +28,8 @@ export function loadMigrationLogs(): Promise<IMigration[]> {
             text: logText,
           };
         case 'transfering':
-        case 'Failed to import':
-          logLevel = match[1] === 'Failed to import' ? 'failed' : match[1];
+        case 'Failed':
+          logLevel = match[1].toLocaleLowerCase();
           logText = match[2];
           return {
             lineno: idx,
