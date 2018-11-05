@@ -57,6 +57,7 @@ export interface IWindow {
  */
 export interface INotificationState {
   notifications: INotification[];
+  global_notifications: INotification[];
   dialogs: IDialog[];
 }
 

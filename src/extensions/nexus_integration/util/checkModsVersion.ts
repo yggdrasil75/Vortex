@@ -4,7 +4,7 @@ import { truthy } from '../../../util/util';
 import { nexusGameId } from './convertGameId';
 
 import { gameById } from '../../gamemode_management/selectors';
-import { setModAttribute } from '../../mod_management/actions/mods';
+import { setModAttribute, setModAttributes } from '../../mod_management/actions/mods';
 import { IMod } from '../../mod_management/types/IMod';
 
 import * as Promise from 'bluebird';
@@ -57,45 +57,45 @@ function findLatestUpdate(fileUpdates: IFileUpdate[], updateChain: IFileUpdate[]
   }
 }
 
-function update(dispatch: Redux.Dispatch<any>,
-                gameId: string,
-                mod: IMod,
-                attribute: string,
-                newValue: any) {
-  // previously this would only update the attribute if it was already
-  // set on the mod. I just can't think of a good reason to do that any more
-  dispatch(setModAttribute(gameId, mod.id, attribute, newValue));
-}
-
 function updateModAttributes(dispatch: Redux.Dispatch<any>,
                              gameId: string,
                              mod: IMod,
                              modInfo: IModInfo) {
+  const attributes: any = {
+    'shortDescription': modInfo.summary,
+    'description': modInfo.description,
+    'pictureUrl': modInfo.picture_url,
+    'author': modInfo.author,
+  };
+
   if (modInfo.endorsement !== undefined) {
-    update(dispatch, gameId, mod, 'endorsed', modInfo.endorsement.endorse_status);
+    attributes.endorsed = modInfo.endorsement.endorse_status;
   }
   if (getSafe(mod.attributes, ['category'], undefined) === undefined) {
-    update(dispatch, gameId, mod, 'category', modInfo.category_id);
+    attributes.category = modInfo.category_id;
   }
-  update(dispatch, gameId, mod, 'shortDescription', modInfo.summary);
-  update(dispatch, gameId, mod, 'description', modInfo.description);
-  update(dispatch, gameId, mod, 'pictureUrl', modInfo.picture_url);
-  update(dispatch, gameId, mod, 'author', modInfo.author);
+
+  dispatch(setModAttributes(gameId, mod.id, attributes));
 }
 
 function updateLatestFileAttributes(dispatch: Redux.Dispatch<any>,
                                     gameId: string,
                                     mod: IMod,
-                                    file: IFileInfo) {
-  update(dispatch, gameId, mod, 'newestVersion', file.version);
+                                    file: IFileInfo,
+                                    changelog: string) {
+  const attributes = {
+    newestVersion:  file.version,
+    newestFileId: ((file.category_name === 'OLD_VERSION') || !truthy(file.category_name))
+      // file was removed from mod or is old, either way there should be a new version available
+      // but we have no way of determining which it is.
+      ? 'unknown'
+      : file.file_id,
+    newestChangelog: (changelog.length > 0)
+      ? { format: 'html', content: changelog }
+      : undefined,
+  };
 
-  if ((file.category_name === 'OLD_VERSION') || !truthy(file.category_name)) {
-    // file was removed from mod or is old, either way there should be a new version available
-    // but we have no way of determining which it is.
-    update(dispatch, gameId, mod, 'newestFileId', 'unknown');
-  } else {
-    update(dispatch, gameId, mod, 'newestFileId', file.file_id);
-  }
+  dispatch(setModAttributes(gameId, mod.id, attributes));
 }
 
 function updateFileAttributes(dispatch: Redux.Dispatch<any>,
@@ -130,12 +130,6 @@ function updateFileAttributes(dispatch: Redux.Dispatch<any>,
     .filter(change => change !== undefined)
     .join('</br>');
 
-  if (changelog.length > 0) {
-    update(dispatch, gameId, mod, 'newestChangelog', { format: 'html', content: changelog });
-  } else {
-    update(dispatch, gameId, mod, 'newestChangelog', undefined);
-  }
-
   let updatedFile = fileUpdates.length > 0
     ? files.files.find(file => file.file_id === fileUpdates[fileUpdates.length - 1].new_file_id)
     : files.files.find(file => file.file_id === fileId);
@@ -145,7 +139,7 @@ function updateFileAttributes(dispatch: Redux.Dispatch<any>,
     } catch(err) {}
   }
   if (updatedFile !== undefined) {
-    updateLatestFileAttributes(dispatch, gameId, mod, updatedFile);
+    updateLatestFileAttributes(dispatch, gameId, mod, updatedFile, changelog);
   }
 }
 

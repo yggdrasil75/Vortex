@@ -459,7 +459,11 @@ class ExtensionManager {
         return store.dispatch(showDialog(type, title, content, actions));
       };
     this.mApi.dismissNotification = (id: string) => {
-      store.dispatch(dismissNotification(id));
+      const state: IState = store.getState() as any;
+      const { notifications, global_notifications } = state.session.notifications;
+      if ((notifications[id] !== undefined) || (global_notifications[id] !== undefined)) {
+        store.dispatch(dismissNotification(id));
+      }
     };
     this.mApi.store = store;
     this.mApi.onStateChange = this.stateChangeHandler;
