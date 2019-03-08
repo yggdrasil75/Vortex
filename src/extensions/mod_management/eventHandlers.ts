@@ -1,6 +1,8 @@
 import {IExtensionApi} from '../../types/IExtensionContext';
 import {IModTable, IState} from '../../types/IState';
+
 import { ProcessCanceled, TemporaryError, UserCanceled } from '../../util/CustomErrors';
+import Debouncer from '../../util/Debouncer';
 import * as fs from '../../util/fs';
 import getNormalizeFunc, { Normalize } from '../../util/getNormalizeFunc';
 import {showError} from '../../util/message';
@@ -237,7 +239,8 @@ export function onGameModeActivated(
 
 export function onPathsChanged(api: IExtensionApi,
                                previous: { [gameId: string]: string },
-                               current: { [gameId: string]: string }) {
+                               current: { [gameId: string]: string },
+                               deploymentTimer: Debouncer) {
   const { store } = api;
   const state = store.getState();
   const gameMode = activeGameId(state);
@@ -252,7 +255,13 @@ export function onPathsChanged(api: IExtensionApi,
           }
         });
       })
-      .then(() => null)
+      .then(() => {
+        if (state.settings.automation.deploy) {
+          deploymentTimer.runNow(undefined, false);
+        } else if (!state.persistent.deployment.needToDeploy[gameMode]) {
+          store.dispatch(setDeploymentNecessary(gameMode, true));
+        }
+      })
       .catch((err: Error) => {
         showError(store.dispatch, 'Failed to refresh mods', err);
       });

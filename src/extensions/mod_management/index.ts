@@ -218,6 +218,10 @@ function genUpdateModDeployment() {
           progressCB?: (text: string, percent: number) => void): Promise<void> => {
     let notificationId: string;
 
+    // Clear the redundant-mods notification as it will be raised
+    //  again further down in this function if it's still necessary.
+    api.dismissNotification('redundant-mods');
+
     const progress = (text: string, percent: number) => {
       log('debug', 'deployment progress', { text, percent });
       if (progressCB !== undefined) {
@@ -805,7 +809,7 @@ function once(api: IExtensionApi) {
 
   api.onStateChange(
       ['settings', 'mods', 'installPath'],
-      (previous, current) => onPathsChanged(api, previous, current));
+      (previous, current) => onPathsChanged(api, previous, current, deploymentTimer));
 
   api.onStateChange(
       ['persistent', 'mods'],
